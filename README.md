@@ -11,6 +11,8 @@ A modern React-based dashboard for visualizing property management analytics, re
 
 **Dashboard URL**: [https://property-insights-frontend.vercel.app/](https://property-insights-frontend.vercel.app/)
 
+**Video Demo**: [Watch on Google Drive](https://drive.google.com/file/d/1vPLVWrSekaKa1_nqbaqLcfnJggGnLnlm/view?usp=drive_link)
+
 ## ✨ Features
 
 - **Real-Time Analytics** - Live data from Spring Boot backend API
