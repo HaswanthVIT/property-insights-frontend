@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Home, DollarSign, Users, AlertCircle, RefreshCw, Search, Filter, Download, Plus, X, Edit2, Trash2 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { TrendingUp, Home, DollarSign, Users, AlertCircle, RefreshCw, Search, Filter, Download, Plus, X, Edit2, Trash2, Save } from 'lucide-react';
 
 const API_URL = 'https://property-insights-backend.onrender.com/api';
 
@@ -9,6 +9,7 @@ function App() {
   const [filteredProperties, setFilteredProperties] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   
   // Interactive state
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,17 +18,36 @@ function App() {
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  
+  // Form state
+  const [formData, setFormData] = useState({
+    address: '',
+    propertyType: 'Apartment',
+    rent: '',
+    occupancy: ''
+  });
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
+      console.log('Fetching from:', API_URL);
+      
       const [propertiesRes, analyticsRes] = await Promise.all([
         fetch(`${API_URL}/properties`),
         fetch(`${API_URL}/properties/analytics`)
       ]);
 
+      if (!propertiesRes.ok || !analyticsRes.ok) {
+        throw new Error('Failed to fetch data from backend');
+      }
+
       const propertiesData = await propertiesRes.json();
       const analyticsData = await analyticsRes.json();
+
+      console.log('Properties:', propertiesData);
+      console.log('Analytics:', analyticsData);
 
       setProperties(propertiesData);
       setFilteredProperties(propertiesData);
@@ -38,11 +58,11 @@ function App() {
         avgScore: analyticsData.averageScore?.toFixed(1) || '0',
         totalProperties: analyticsData.totalProperties || 0,
         rentTrends: [
-          { month: 'Jan', avgRent: 2400 },
-          { month: 'Feb', avgRent: 2450 },
-          { month: 'Mar', avgRent: 2500 },
-          { month: 'Apr', avgRent: 2600 },
-          { month: 'May', avgRent: 2700 },
+          { month: 'Jan', avgRent: Math.max(2400, (analyticsData.averageRent || 2750) - 350) },
+          { month: 'Feb', avgRent: Math.max(2450, (analyticsData.averageRent || 2750) - 300) },
+          { month: 'Mar', avgRent: Math.max(2500, (analyticsData.averageRent || 2750) - 250) },
+          { month: 'Apr', avgRent: Math.max(2600, (analyticsData.averageRent || 2750) - 150) },
+          { month: 'May', avgRent: Math.max(2700, (analyticsData.averageRent || 2750) - 50) },
           { month: 'Jun', avgRent: analyticsData.averageRent || 2750 },
         ],
         propertyTypes: calculatePropertyTypes(propertiesData)
@@ -51,7 +71,8 @@ function App() {
       setAnalytics(transformedAnalytics);
       setLoading(false);
     } catch (err) {
-      console.error('Error:', err);
+      console.error('Error fetching data:', err);
+      setError(err.message);
       setLoading(false);
     }
   };
@@ -72,19 +93,16 @@ function App() {
   useEffect(() => {
     let result = [...properties];
 
-    // Search filter
     if (searchTerm) {
       result = result.filter(p => 
         p.address.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
-    // Type filter
     if (filterType !== 'All') {
       result = result.filter(p => p.propertyType === filterType);
     }
 
-    // Sort
     result.sort((a, b) => {
       if (sortBy === 'rent') return b.rent - a.rent;
       if (sortBy === 'occupancy') return b.occupancy - a.occupancy;
@@ -94,6 +112,108 @@ function App() {
 
     setFilteredProperties(result);
   }, [searchTerm, filterType, sortBy, properties]);
+
+  // CREATE - Add new property
+  const handleAddProperty = async (e) => {
+    e.preventDefault();
+    try {
+      console.log('Adding property:', formData);
+      
+      const response = await fetch(`${API_URL}/properties`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          address: formData.address,
+          propertyType: formData.propertyType,
+          rent: parseInt(formData.rent),  // Convert to int
+          occupancy: parseInt(formData.occupancy)  // Convert to int
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to add property: ${errorText}`);
+      }
+
+      const newProperty = await response.json();
+      console.log('Property added:', newProperty);
+
+      setShowAddModal(false);
+      setFormData({ address: '', propertyType: 'Apartment', rent: '', occupancy: '' });
+      await fetchData(); // Refresh data
+      alert('✅ Property added successfully!');
+    } catch (err) {
+      console.error('Error adding property:', err);
+      alert('❌ Failed to add property: ' + err.message);
+    }
+  };
+
+  // UPDATE - Edit property
+  const handleEditProperty = async (e) => {
+    e.preventDefault();
+    try {
+      console.log('Updating property:', selectedProperty.id, formData);
+      
+      const response = await fetch(`${API_URL}/properties/${selectedProperty.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          address: formData.address,
+          propertyType: formData.propertyType,
+          rent: parseInt(formData.rent),
+          occupancy: parseInt(formData.occupancy)
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update property: ${errorText}`);
+      }
+
+      const updatedProperty = await response.json();
+      console.log('Property updated:', updatedProperty);
+
+      setShowEditModal(false);
+      setSelectedProperty(null);
+      setFormData({ address: '', propertyType: 'Apartment', rent: '', occupancy: '' });
+      await fetchData();
+      alert('✅ Property updated successfully!');
+    } catch (err) {
+      console.error('Error updating property:', err);
+      alert('❌ Failed to update property: ' + err.message);
+    }
+  };
+
+  // DELETE - Remove property
+  const handleDeleteProperty = async (id) => {
+    if (!window.confirm('⚠️ Are you sure you want to delete this property?')) return;
+    
+    try {
+      console.log('Deleting property:', id);
+      
+      const response = await fetch(`${API_URL}/properties/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to delete property: ${errorText}`);
+      }
+
+      console.log('Property deleted:', id);
+
+      await fetchData();
+      setShowModal(false);
+      alert('✅ Property deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting property:', err);
+      alert('❌ Failed to delete property: ' + err.message);
+    }
+  };
 
   // Export to CSV
   const exportToCSV = () => {
@@ -109,6 +229,17 @@ function App() {
     a.href = url;
     a.download = 'properties.csv';
     a.click();
+  };
+
+  const openEditModal = (property) => {
+    setSelectedProperty(property);
+    setFormData({
+      address: property.address,
+      propertyType: property.propertyType,
+      rent: property.rent.toString(),
+      occupancy: property.occupancy.toString()
+    });
+    setShowEditModal(true);
   };
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
@@ -131,8 +262,8 @@ function App() {
   );
 
   const PropertyModal = ({ property, onClose }) => (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'white', borderRadius: '12px', padding: '32px', maxWidth: '500px', width: '90%', position: 'relative' }}>
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
+      <div style={{ background: 'white', borderRadius: '12px', padding: '32px', maxWidth: '500px', width: '90%', position: 'relative' }} onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', cursor: 'pointer' }}>
           <X size={24} color="#6b7280" />
         </button>
@@ -182,13 +313,90 @@ function App() {
         </div>
         
         <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-          <button style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', background: 'white', color: '#374151', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <button onClick={() => { onClose(); openEditModal(property); }} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', background: 'white', color: '#374151', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
             <Edit2 size={16} /> Edit
           </button>
-          <button style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <button onClick={() => handleDeleteProperty(property.id)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
             <Trash2 size={16} /> Delete
           </button>
         </div>
+      </div>
+    </div>
+  );
+
+  const AddEditModal = ({ isEdit, onClose, onSubmit }) => (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
+      <div style={{ background: 'white', borderRadius: '12px', padding: '32px', maxWidth: '500px', width: '90%', position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', cursor: 'pointer' }}>
+          <X size={24} color="#6b7280" />
+        </button>
+        
+        <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827', marginBottom: '24px' }}>
+          {isEdit ? 'Edit Property' : 'Add New Property'}
+        </h2>
+        
+        <form onSubmit={onSubmit} style={{ display: 'grid', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Address *</label>
+            <input 
+              type="text" 
+              value={formData.address}
+              onChange={(e) => setFormData({...formData, address: e.target.value})}
+              required
+              placeholder="123 Main St, City, State"
+              style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+            />
+          </div>
+          
+          <div>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Property Type *</label>
+            <select 
+              value={formData.propertyType}
+              onChange={(e) => setFormData({...formData, propertyType: e.target.value})}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+            >
+              <option value="Apartment">Apartment</option>
+              <option value="House">House</option>
+              <option value="Studio">Studio</option>
+            </select>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Monthly Rent ($) *</label>
+              <input 
+                type="number" 
+                value={formData.rent}
+                onChange={(e) => setFormData({...formData, rent: e.target.value})}
+                required
+                min="0"
+                step="1"
+                placeholder="2500"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+              />
+            </div>
+            
+            <div>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Occupancy (%) *</label>
+              <input 
+                type="number" 
+                value={formData.occupancy}
+                onChange={(e) => setFormData({...formData, occupancy: e.target.value})}
+                required
+                min="0"
+                max="100"
+                step="1"
+                placeholder="100"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+              />
+            </div>
+          </div>
+          
+          <button type="submit" style={{ marginTop: '8px', padding: '12px', borderRadius: '8px', background: '#2563eb', color: 'white', fontWeight: '500', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <Save size={16} />
+            {isEdit ? 'Update Property' : 'Add Property'}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -199,6 +407,22 @@ function App() {
         <div style={{ textAlign: 'center' }}>
           <div style={{ width: '64px', height: '64px', border: '4px solid transparent', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto' }}></div>
           <p style={{ marginTop: '16px', fontSize: '18px', color: '#374151', fontWeight: '500' }}>Loading Property Analytics...</p>
+          <p style={{ marginTop: '8px', fontSize: '14px', color: '#6b7280' }}>Connecting to backend...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(to bottom right, #eff6ff, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ textAlign: 'center', maxWidth: '500px' }}>
+          <AlertCircle size={64} color="#dc2626" style={{ margin: '0 auto' }} />
+          <h2 style={{ marginTop: '16px', fontSize: '24px', fontWeight: 'bold', color: '#111827' }}>Connection Error</h2>
+          <p style={{ marginTop: '8px', fontSize: '16px', color: '#6b7280' }}>{error}</p>
+          <button onClick={fetchData} style={{ marginTop: '24px', padding: '12px 24px', borderRadius: '8px', background: '#2563eb', color: 'white', border: 'none', cursor: 'pointer', fontWeight: '500' }}>
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -233,7 +457,7 @@ function App() {
           
           <div style={{ marginTop: '16px', padding: '12px', borderRadius: '8px', background: '#d1fae5', border: '1px solid #6ee7b7' }}>
             <p style={{ fontSize: '14px', fontWeight: '500', color: '#065f46' }}>
-              ✅ Connected to Live Backend API
+              ✅ Connected to Live Backend API - Full CRUD Operations Active
             </p>
           </div>
         </div>
@@ -281,7 +505,6 @@ function App() {
         <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', border: '1px solid #e5e7eb', marginBottom: '32px', padding: '24px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', flex: 1 }}>
-              {/* Search */}
               <div style={{ position: 'relative', minWidth: '250px' }}>
                 <Search size={20} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#6b7280' }} />
                 <input 
@@ -293,7 +516,6 @@ function App() {
                 />
               </div>
 
-              {/* Filter */}
               <div style={{ position: 'relative' }}>
                 <Filter size={20} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#6b7280' }} />
                 <select 
@@ -308,7 +530,6 @@ function App() {
                 </select>
               </div>
 
-              {/* Sort */}
               <select 
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
@@ -321,7 +542,6 @@ function App() {
               </select>
             </div>
 
-            {/* Export Button */}
             <button onClick={exportToCSV} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f59e0b', color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '500' }}>
               <Download size={16} />
               Export CSV
@@ -376,10 +596,10 @@ function App() {
                     </td>
                     <td style={{ padding: '16px 24px' }} onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button style={{ padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer' }}>
+                        <button onClick={() => openEditModal(property)} style={{ padding: '6px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer' }}>
                           <Edit2 size={14} color="#6b7280" />
                         </button>
-                        <button style={{ padding: '6px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', cursor: 'pointer' }}>
+                        <button onClick={() => handleDeleteProperty(property.id)} style={{ padding: '6px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', cursor: 'pointer' }}>
                           <Trash2 size={14} color="#dc2626" />
                         </button>
                       </div>
@@ -394,13 +614,21 @@ function App() {
         {/* Footer */}
         <div style={{ marginTop: '32px', textAlign: 'center', fontSize: '14px', color: '#6b7280' }}>
           <p style={{ fontWeight: '500' }}>Tech Stack: Spring Boot (Java) | PostgreSQL | React | Render</p>
-          <p style={{ marginTop: '4px' }}>RESTful Microservices | JPA/Hibernate | Clean Architecture</p>
+          <p style={{ marginTop: '4px' }}>RESTful Microservices | JPA/Hibernate | Clean Architecture | Full CRUD Operations</p>
         </div>
       </div>
 
-      {/* Property Details Modal */}
+      {/* Modals */}
       {showModal && selectedProperty && (
         <PropertyModal property={selectedProperty} onClose={() => setShowModal(false)} />
+      )}
+
+      {showAddModal && (
+        <AddEditModal isEdit={false} onClose={() => { setShowAddModal(false); setFormData({ address: '', propertyType: 'Apartment', rent: '', occupancy: '' }); }} onSubmit={handleAddProperty} />
+      )}
+
+      {showEditModal && (
+        <AddEditModal isEdit={true} onClose={() => { setShowEditModal(false); setFormData({ address: '', propertyType: 'Apartment', rent: '', occupancy: '' }); }} onSubmit={handleEditProperty} />
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
